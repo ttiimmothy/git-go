@@ -13,7 +13,7 @@ commits, trees etc.), Git's transfer protocols and more.
 **Note**: If you're viewing this repo on GitHub, head over to
 [codecrafters.io](https://codecrafters.io) to try the challenge.
 
-# Passing the first stage
+## Passing the first stage
 
 The entry point for your Git implementation is in `cmd/mygit/main.go`. Study and
 uncomment the relevant code, and push your changes to pass the first stage:
@@ -26,7 +26,7 @@ git push origin master
 
 That's all!
 
-# Stage 2 & beyond
+## Stage 2 & beyond
 
 Note: This section is for stages 2 and beyond.
 
@@ -36,7 +36,7 @@ Note: This section is for stages 2 and beyond.
 1. Commit your changes and run `git push origin master` to submit your solution
    to CodeCrafters. Test output will be streamed to your terminal.
 
-# Testing locally
+## Testing locally
 
 The `your_git.sh` script is expected to operate on the `.git` folder inside the
 current working directory. If you're running this inside the root of this
