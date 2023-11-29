@@ -1,3 +1,4 @@
-module github.com/codecrafters-io/git-starter-go
+// module github.com/codecrafters-io/git-starter-go
+module cmd/mygit/main
 
-go 1.16
+go 1.21.4
