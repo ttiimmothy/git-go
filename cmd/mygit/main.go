@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bufio"
 	"compress/zlib"
 	"crypto/sha1"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -10,6 +12,37 @@ import (
 	"path/filepath"
 	"strings"
 )
+
+type TreeEntry struct {
+	mode string
+	name string
+	sha  string
+}
+
+func nextTreeEntry(br *bufio.Reader) (TreeEntry, error) {
+	modeBytes, err := br.ReadBytes(' ')
+	if err != nil {
+		return TreeEntry{}, err
+	}
+	mode := string(modeBytes[:len(modeBytes)-1]) // remove trailing space
+	nameBytes, err := br.ReadBytes('\x00')
+	if err != nil {
+		return TreeEntry{}, err
+	}
+	name := string(nameBytes[:len(nameBytes)-1]) // remove trailing null
+
+	shaBytes := [20]byte{}
+	_, err = br.Read(shaBytes[:])
+	if err != nil {
+		return TreeEntry{}, err
+	}
+	sha := fmt.Sprintf("%x", shaBytes)
+	return TreeEntry{
+		mode: mode,
+		name: name,
+		sha:  sha,
+	}, nil
+}
 
 func hashObject(filename string) int {
 	s, err := os.Stat(filename)
@@ -70,6 +103,43 @@ func hashObject(filename string) int {
 	return 0
 }
 
+func lsTree(sha string) int {
+	const dir = ".git/objects"
+	prefix, filename := sha[:2], sha[2:]
+	filepath := path.Join(dir, prefix, filename)
+	f, err := os.Open(filepath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error opening file: %s\n", err)
+		os.Exit(1)
+	}
+	defer f.Close()
+	r, err := zlib.NewReader(f)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error reading zlib data: %s\n", err)
+		os.Exit(1)
+	}
+	defer r.Close()
+	br := bufio.NewReader(r)
+	_, err = br.ReadBytes('\x00') // discard header 'tree <length>\x00'
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error reading header: %s\n", err)
+		os.Exit(1)
+	}
+	for {
+		entry, err := nextTreeEntry(br)
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			} else {
+				fmt.Fprintf(os.Stderr, "Error reading tree object: %s\n", err)
+				os.Exit(1)
+			}
+		}
+		fmt.Println(entry.name)
+	}
+	return 0
+}
+
 func main() {
 	if len(os.Args) < 2 {
 		fmt.Fprintf(os.Stderr, "usage: mygit <command> [<args>...]\n")
@@ -115,6 +185,10 @@ func main() {
 	case "hash-object":
 		filename := os.Args[3]
 		os.Exit(hashObject(filename))
+
+	case "ls-tree":
+		sha := os.Args[3]
+		os.Exit(lsTree(sha))
 
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command %s\n", command)
