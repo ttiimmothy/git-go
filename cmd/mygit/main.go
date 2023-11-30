@@ -113,11 +113,6 @@ func main() {
 		}
 
 	case "hash-object":
-		if len(os.Args) < 4 {
-			fmt.Fprintf(os.Stderr, "usage: mygit hash-object -w <file>\n")
-			os.Exit(1)
-		}
-
 		filename := os.Args[3]
 		os.Exit(hashObject(filename))
 
