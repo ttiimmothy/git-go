@@ -2,14 +2,17 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"compress/zlib"
 	"crypto/sha1"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -140,6 +143,77 @@ func lsTree(sha string) int {
 	return 0
 }
 
+func shaData(data []byte) [20]byte {
+	return sha1.Sum(data)
+}
+
+func writeObject(t string, data []byte) ([20]byte, string) {
+	header := fmt.Sprintf("%s %d\x00", t, len(data))
+	storeContents := append([]byte(header), data...)
+	hashKeyBytes := shaData(storeContents)
+	hashKey := hex.EncodeToString(hashKeyBytes[:])
+	if len(hashKey) != 40 {
+		fmt.Fprintf(os.Stderr, "length hash key=%d invalid\n", len(hashKey))
+		os.Exit(1)
+	}
+	dir := fmt.Sprintf(".git/objects/%s", hashKey[:2])
+	filePath := fmt.Sprintf("%s/%s", dir, hashKey[2:])
+	if err := os.MkdirAll(string(dir), 0755); err != nil {
+		fmt.Fprintf(os.Stderr, "mkdir %s got err=%v\n", string(dir), err)
+		os.Exit(1)
+	}
+	var buf bytes.Buffer
+	zWriter := zlib.NewWriter(&buf)
+	_, err := zWriter.Write(storeContents)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "write zlib to buffer got err=%v\n", err)
+		os.Exit(1)
+	}
+	zWriter.Close()
+	err = os.WriteFile(filePath, buf.Bytes(), 0755)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "write content to file=%s got err=%v\n", filePath, err)
+		os.Exit(1)
+	}
+	return hashKeyBytes, hashKey
+}
+
+func writeTree(path string) ([20]byte, string) {
+	dirInfos, err := os.ReadDir(path)
+	if err != nil {
+		fmt.Printf("Err: %v", err)
+		os.Exit(1)
+	}
+	entries := []string{}
+	for _, item := range dirInfos {
+		if item.Name() == ".git" {
+			continue
+		}
+		if item.IsDir() {
+			hash, _ := writeTree(filepath.Join(path, item.Name()))
+			row := fmt.Sprintf("40000 %s\x00%s", item.Name(), hash)
+			entries = append(entries, row)
+		} else {
+			content_file, err := os.ReadFile(filepath.Join(path, item.Name()))
+			if err != nil {
+				fmt.Printf("Err: %v", err)
+				os.Exit(1)
+			}
+			hashKey, _ := writeObject("blob", content_file)
+			row := fmt.Sprintf("100644 %s\x00%s", item.Name(), hashKey)
+			entries = append(entries, row)
+		}
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i][strings.IndexByte(entries[i], ' ')+1:] < entries[j][strings.IndexByte(entries[i], ' ')+1:]
+	})
+	var buffer bytes.Buffer
+	for _, e := range entries {
+		buffer.WriteString(e)
+	}
+	return writeObject("tree", buffer.Bytes())
+}
+
 func main() {
 	if len(os.Args) < 2 {
 		fmt.Fprintf(os.Stderr, "usage: mygit <command> [<args>...]\n")
@@ -183,12 +257,24 @@ func main() {
 		}
 
 	case "hash-object":
+		if len(os.Args) < 4 {
+			fmt.Fprintf(os.Stderr, "usage: mygit hash-object -w <path-file>\n")
+			os.Exit(1)
+		}
 		filename := os.Args[3]
 		os.Exit(hashObject(filename))
 
 	case "ls-tree":
+		if len(os.Args) < 4 {
+			fmt.Fprintf(os.Stderr, "usage: mygit hash-object -w <path-file>\n")
+			os.Exit(1)
+		}
 		sha := os.Args[3]
 		os.Exit(lsTree(sha))
+
+	case "write-tree":
+		_, hash := writeTree(".")
+		fmt.Println(hash)
 
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command %s\n", command)
