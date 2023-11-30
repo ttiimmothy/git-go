@@ -2,12 +2,73 @@ package main
 
 import (
 	"compress/zlib"
+	"crypto/sha1"
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 )
+
+func hashObject(filename string) int {
+	s, err := os.Stat(filename)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error getting file info: %s\n", err)
+		os.Exit(1)
+	}
+	fileLength := s.Size()
+	// Reader 1 - header
+	headerReader := strings.NewReader(fmt.Sprintf("blob %d\x00", fileLength))
+	// Reader 2 - file content
+	fileReader, err := os.Open(filename)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error opening file: %s\n", err)
+		os.Exit(1)
+	}
+	defer fileReader.Close()
+
+	reader := io.MultiReader(headerReader, fileReader)
+	// Writer 1 - hash
+	hashWriter := sha1.New()
+	// Writer 2 - zlib
+	fileWriter, err := os.CreateTemp("", "mygit.*.blob")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error creating temp file: %s\n", err)
+		os.Exit(1)
+	}
+	defer fileWriter.Close()
+	zWriter := zlib.NewWriter(fileWriter)
+	defer zWriter.Close()
+
+	writer := io.MultiWriter(hashWriter, zWriter)
+
+	if _, err := io.Copy(writer, reader); err != nil {
+		fmt.Fprintf(os.Stderr, "Error writing file: %s\n", err)
+		os.Exit(1)
+	}
+	sha := fmt.Sprintf("%x", hashWriter.Sum(nil))
+	prefix, filename := sha[:2], sha[2:]
+	if err := os.MkdirAll(path.Join(".git/objects", prefix), 0755); err != nil {
+		fmt.Fprintf(os.Stderr, "Error creating directory: %s\n", err)
+		os.Exit(1)
+	}
+
+	dstFilepath := path.Join(".git/objects", prefix, filename)
+	tempFilepath := fileWriter.Name()
+
+	if err := os.Rename(tempFilepath, dstFilepath); err != nil {
+		fmt.Fprintf(os.Stderr, "Error renaming file: %s\n", err)
+		err = os.Remove(dstFilepath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error removing temp file: %s\n", err)
+			os.Exit(1)
+		}
+		os.Exit(1)
+	}
+	fmt.Println(sha)
+	return 0
+}
 
 func main() {
 	if len(os.Args) < 2 {
@@ -29,11 +90,11 @@ func main() {
 		fmt.Println("Initialized git directory")
 
 	case "cat-file":
-		opt := os.Args[2]
-		switch opt {
+		option := os.Args[2]
+		switch option {
 		case "-p":
-			blob := os.Args[3]
-			fpath := filepath.Join(".git/objects", blob[:2], blob[2:])
+			blob_sha := os.Args[3]
+			fpath := filepath.Join(".git/objects", blob_sha[:2], blob_sha[2:])
 			f, err := os.Open(fpath)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error opening %s: %s\n", fpath, err)
@@ -50,6 +111,10 @@ func main() {
 		default:
 			fmt.Fprintf(os.Stderr, "Unknown command %s\n", command)
 		}
+
+	case "hash-object":
+		filename := os.Args[3]
+		os.Exit(hashObject(filename))
 
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command %s\n", command)
