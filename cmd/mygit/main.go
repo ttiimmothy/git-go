@@ -194,12 +194,12 @@ func writeTree(path string) ([20]byte, string) {
 			row := fmt.Sprintf("40000 %s\x00%s", item.Name(), hash)
 			entries = append(entries, row)
 		} else {
-			content_file, err := os.ReadFile(filepath.Join(path, item.Name()))
+			contentFile, err := os.ReadFile(filepath.Join(path, item.Name()))
 			if err != nil {
 				fmt.Printf("Err: %v", err)
 				os.Exit(1)
 			}
-			hashKey, _ := writeObject("blob", content_file)
+			hashKey, _ := writeObject("blob", contentFile)
 			row := fmt.Sprintf("100644 %s\x00%s", item.Name(), hashKey)
 			entries = append(entries, row)
 		}
@@ -214,6 +214,49 @@ func writeTree(path string) ([20]byte, string) {
 	return writeObject("tree", buffer.Bytes())
 }
 
+func commit(treeHash, parentHash, msg string) string {
+	sb := strings.Builder{}
+	sb.WriteString("tree " + treeHash + "\n")
+	sb.WriteString("parent " + parentHash + "\n")
+	sb.WriteString("author thanhfphan<thanhptse@gmail.com>\n")
+	sb.WriteString("committer Sun Nov 19 23:04:54 2023 +0700\n")
+	sb.WriteString("\n" + msg + "\n")
+
+	hashKeyBytes := shaData([]byte(sb.String()))
+	hashKey := hex.EncodeToString(hashKeyBytes[:])
+	header := fmt.Sprintf("commit %d\x00", sb.Len())
+	storeContents := append([]byte(header), []byte(sb.String())...)
+	dir := fmt.Sprintf(".git/objects/%s", hashKey[:2])
+	filePath := fmt.Sprintf("%s/%s", dir, hashKey[2:])
+
+	if err := os.MkdirAll(string(dir), 0755); err != nil {
+		fmt.Fprintf(os.Stderr, "mkdir %s got err=%v\n", string(dir), err)
+		os.Exit(1)
+	}
+
+	var buf bytes.Buffer
+	zWriter := zlib.NewWriter(&buf)
+	_, err := zWriter.Write(storeContents)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "write zlib to buffer got err=%v\n", err)
+		os.Exit(1)
+	}
+	zWriter.Close()
+	err = os.WriteFile(filePath, buf.Bytes(), 0755)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "write content to file=%s got err=%v\n", filePath, err)
+		os.Exit(1)
+	}
+	pathCommit := filepath.Join(".git", "refs", "heads", "master")
+	content := hashKey + "\n"
+	err = os.WriteFile(pathCommit, []byte(content), 0755)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "write data to commit file=%s got err=%v\n", pathCommit, err)
+		os.Exit(1)
+	}
+	return hashKey
+}
+
 func main() {
 	if len(os.Args) < 2 {
 		fmt.Fprintf(os.Stderr, "usage: mygit <command> [<args>...]\n")
@@ -222,7 +265,7 @@ func main() {
 
 	switch command := os.Args[1]; command {
 	case "init":
-		for _, dir := range []string{".git", ".git/objects", ".git/refs"} {
+		for _, dir := range []string{".git", ".git/objects", ".git/refs", ".git/refs/heads"} {
 			if err := os.MkdirAll(dir, 0755); err != nil {
 				fmt.Fprintf(os.Stderr, "Error creating directory: %s\n", err)
 			}
@@ -237,8 +280,8 @@ func main() {
 		option := os.Args[2]
 		switch option {
 		case "-p":
-			blob_sha := os.Args[3]
-			fpath := filepath.Join(".git/objects", blob_sha[:2], blob_sha[2:])
+			blobSha := os.Args[3]
+			fpath := filepath.Join(".git/objects", blobSha[:2], blobSha[2:])
 			f, err := os.Open(fpath)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error opening %s: %s\n", fpath, err)
@@ -275,6 +318,17 @@ func main() {
 	case "write-tree":
 		_, hash := writeTree(".")
 		fmt.Println(hash)
+
+	case "commit-tree":
+		if len(os.Args) < 7 {
+			fmt.Fprintf(os.Stderr, "usage: mygit commit-tree <tree_sha> -p <commit_sha> -m <message>\n")
+			os.Exit(1)
+		}
+		treeHash := os.Args[2]
+		parentSha := os.Args[4]
+		msg := os.Args[6]
+		hashCommit := commit(treeHash, parentSha, msg)
+		fmt.Println(hashCommit)
 
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command %s\n", command)
