@@ -1,6 +1,6 @@
 [![progress-banner](https://backend.codecrafters.io/progress/git/152db50b-c5d5-4b62-9265-f898379e1d4d)](https://app.codecrafters.io/users/codecrafters-bot?r=2qF)
 
-# Git Golang
+# Git Go
 
 This is a starting point for Go solutions to the
 ["Build Your Own Git" Challenge](https://codecrafters.io/challenges/git).
@@ -63,4 +63,4 @@ mygit init
 
 ## License
 
-Git Golang is licensed under [GNU General Public License v3.0](LICENSE).
+Git Go is licensed under [GNU General Public License v3.0](LICENSE).
